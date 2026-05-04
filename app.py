@@ -3,86 +3,106 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # Nastavenie šírky stránky
-st.set_page_config(layout="wide", page_title="Sklad - Zóna A")
+st.set_page_config(layout="wide", page_title="Warehouse Map - All Zones")
 
-st.title("📍 Warehouse Visualizer: Zóna A")
+st.title("📊 Warehouse Multi-Zone Visualizer")
 
 # Sidebar pre nahranie súboru
 uploaded_file = st.sidebar.file_uploader("Nahraj Excel súbor (.xlsx)", type=["xlsx"])
 
 def parse_location(loc_name):
-    """Rozbije formát 2A-01-1-2 na uličku, pozíciu a úroveň"""
+    """
+    Rozbije formát 2A-01-1-2 alebo 2SW-01-1-2 na komponenty.
+    Vezme prvú časť (napr. 2SW), odstráni prvú číslicu a zvyšok je Zóna.
+    """
     try:
         parts = str(loc_name).split('-')
+        # Prvá časť (napr. 2A nebo 2SW)
+        prefix = parts[0]
+        # Zóna je všetko od druhého znaku ďalej (A, B, SW, atď.)
+        zone = prefix[1:] 
+        
         ulicka = int(parts[1])
         pozicia = int(parts[2])
         uroven = int(parts[3])
-        return ulicka, pozicia, uroven
+        return zone, ulicka, pozicia, uroven
     except:
-        return None, None, None
+        return None, None, None, None
 
 if uploaded_file:
     # Načítanie dát
     df = pd.read_excel(uploaded_file)
     
-    # 1. Spracovanie dát a extrakcia číselných hodnôt
-    df[['ul_num', 'poz_num', 'ur_num']] = df.apply(
-        lambda r: pd.Series(parse_location(r['Názov lokácie'])), axis=1
-    )
-    df = df.dropna(subset=['ul_num', 'poz_num', 'ur_num'])
-
-    # Prevod percent na číslo
+    # 1. Prvotné spracovanie - vytiahnutie zón a čísel
+    # Vytvoríme pomocné stĺpce pre filtrovanie
+    coords_data = df.apply(lambda r: pd.Series(parse_location(r['Názov lokácie'])), axis=1)
+    df[['tmp_zone', 'ul_num', 'poz_num', 'ur_num']] = coords_data
+    
+    # Vyčistenie dát
+    df = df.dropna(subset=['tmp_zone', 'ul_num', 'poz_num', 'ur_num'])
     df['util_num'] = df['% Využité kapacity'].astype(str).str.replace('%', '').str.replace(',', '.').astype(float)
 
-    # 2. Sidebar - Hlavné ovládanie
-    st.sidebar.header("Nastavenia zobrazenia")
+    # 2. SIDEBAR - FILTRE
+    st.sidebar.header("📍 Výber oblasti")
     
+    # FILTER 1: VÝBER ZÓNY (A, B, C, SW...)
+    available_zones = sorted(df['tmp_zone'].unique())
+    selected_zone = st.sidebar.selectbox("Vyber Zónu:", available_zones)
+    
+    # Prefiltrujeme dáta podľa vybranej zóny
+    zone_df = df[df['tmp_zone'] == selected_zone].copy()
+
+    st.sidebar.markdown("---")
+    
+    # FILTER 2: TYP ZOBRAZENIA
     view_type = st.sidebar.radio(
         "Typ zobrazenia:",
         ["Pohľad na celú plochu (Pôdorys)", "Detail jednej uličky (Profil)"]
     )
 
+    # FILTER 3: METRIKA FARBY
     viz_mode = st.sidebar.radio(
         "Zobraziť farbu podľa:",
         ["Využitie kapacity (%)", "Počet rôznych produktov"]
     )
 
-    # Dynamické filtre podľa typu zobrazenia
+    # 3. DYNAMICKÁ LOGIKA FILTROVANIA (Pôdorys vs Profil)
     if view_type == "Pohľad na celú plochu (Pôdorys)":
-        # Pridanie možnosti "Všetky úrovne" do zoznamu
-        levels = sorted(df['ur_num'].unique().astype(int))
+        levels = sorted(zone_df['ur_num'].unique().astype(int))
         level_options = ["Všetky úrovne (Priemer)"] + [str(l) for l in levels]
         selected_level = st.sidebar.selectbox("Vyber poschodie:", level_options)
         
         if selected_level == "Všetky úrovne (Priemer)":
-            # Agregácia - spriemerovanie hodnôt pre každú súradnicu [ulička, pozícia]
-            plot_df = df.groupby(['ul_num', 'poz_num']).agg({
+            plot_df = zone_df.groupby(['ul_num', 'poz_num']).agg({
                 'util_num': 'mean',
                 'Počet produktov': 'mean',
-                'Množstvo produktov': 'sum' # Tu dávame sumu, aby sme videli celkový počet kusov v stĺpci
+                'Množstvo produktov': 'sum'
             }).reset_index()
-            plot_df['Názov lokácie'] = plot_df.apply(lambda r: f"Ulička {int(r['ul_num'])}, Poz. {int(r['poz_num'])} (Celý stĺpec)", axis=1)
-            plot_df['ur_num'] = 0 # Dummy hodnota pre zoradenie
+            plot_df['Názov lokácie'] = plot_df.apply(lambda r: f"Zóna {selected_zone}, Ul. {int(r['ul_num'])}, Poz. {int(r['poz_num'])}", axis=1)
+            plot_df['ur_num'] = 0 
         else:
-            plot_df = df[df['ur_num'] == int(selected_level)].copy()
+            plot_df = zone_df[zone_df['ur_num'] == int(selected_level)].copy()
         
         x_axis_col, y_axis_col = 'ul_num', 'poz_num'
         x_label, y_label = "Ulička (Rada)", "Pozícia v uličke"
     
     else: # Detail jednej uličky
-        available_aisles = sorted(df['ul_num'].unique().astype(int))
+        available_aisles = sorted(zone_df['ul_num'].unique().astype(int))
         selected_aisle = st.sidebar.selectbox("Vyber uličku:", available_aisles)
-        plot_df = df[df['ul_num'] == selected_aisle].copy()
+        plot_df = zone_df[zone_df['ul_num'] == selected_aisle].copy()
         x_axis_col, y_axis_col = 'poz_num', 'ur_num'
         x_label, y_label = "Pozícia v uličke", "Poschodie (Úroveň)"
 
-    # Nastavenie farieb
+    # Nastavenie farebnej škály
     if viz_mode == "Využitie kapacity (%)":
         color_col, color_scale, c_min, c_max, bar_title = 'util_num', 'RdYlGn_r', 0, 100, "% Využitia"
     else:
-        color_col, color_scale, c_min, c_max, bar_title = 'Počet produktov', 'Viridis_r', 0, plot_df['Počet produktov'].max() if len(plot_df) > 0 else 10, "Počet SKU"
+        max_sku = plot_df['Počet produktov'].max() if len(plot_df) > 0 else 10
+        color_col, color_scale, c_min, c_max, bar_title = 'Počet produktov', 'Viridis_r', 0, max_sku, "Počet SKU"
 
-    # 3. Vykreslenie mapy
+    # 4. VYKRESLENIE
+    st.subheader(f"Zobrazenie: Zóna {selected_zone} | {view_type}")
+    
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
@@ -102,17 +122,16 @@ if uploaded_file:
         text=plot_df['Názov lokácie'],
         hovertemplate=(
             "<b>%{text}</b><br>" +
-            "Priem. využitie: %{customdata[0]:.1f}%<br>" +
-            "Priem. SKU: %{customdata[1]:.1f}<br>" +
-            "Celkom kusov v stĺpci: %{customdata[2]}<extra></extra>"
+            "Využitie: %{customdata[0]:.1f}%<br>" +
+            "Počet produktov: %{customdata[1]:.1f}<br>" +
+            "Celkom kusov: %{customdata[2]}<extra></extra>"
         ),
         customdata=plot_df[['util_num', 'Počet produktov', 'Množstvo produktov']]
     ))
 
     fig.update_layout(
-        title=f"{view_type} - {viz_mode}",
-        xaxis=dict(title=x_label, tickmode='linear', dtick=5, gridcolor='#eee'),
-        yaxis=dict(title=y_label, tickmode='linear', dtick=1 if view_type == "Detail jednej uličky (Profil)" else 5, gridcolor='#eee'),
+        xaxis=dict(title=x_label, tickmode='linear', dtick=1 if view_type == "Detail jednej uličky (Profil)" else 5, gridcolor='#eee'),
+        yaxis=dict(title=y_label, tickmode='linear', dtick=1, gridcolor='#eee'),
         width=1100,
         height=650,
         plot_bgcolor='white'
@@ -120,23 +139,17 @@ if uploaded_file:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 4. Metriky
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Zobrazené body (stĺpce/lokácie)", len(plot_df))
-    col2.metric("Priemerné zaplnenie (výber)", f"{round(plot_df['util_num'].mean(), 1)}%" if len(plot_df) > 0 else "0%")
-    col3.metric("Max. počet produktov", round(plot_df['Počet produktov'].max(), 1) if len(plot_df) > 0 else 0)
+    # 5. KPI METRIKY
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Počet bodov v náhľade", len(plot_df))
+    m2.metric("Priemerné zaplnenie", f"{round(plot_df['util_num'].mean(), 1)}%" if len(plot_df) > 0 else "0%")
+    m3.metric("Max. mix produktov", round(plot_df['Počet produktov'].max(), 1) if len(plot_df) > 0 else 0)
 
-    # 5. Detailná tabuľka
-    st.write("### Detailný zoznam zobrazených dát")
+    # 6. TABUĽKA
+    st.write("### Detailný zoznam lokácií")
     sorted_df = plot_df.sort_values(['ul_num', 'poz_num'])
-    # Ak sme v režime priemeru, stĺpce premenujeme pre jasnosť
-    if view_type == "Pohľad na celú plochu (Pôdorys)" and selected_level == "Všetky úrovne (Priemer)":
-        display_df = sorted_df[['Názov lokácie', 'Počet produktov', 'Množstvo produktov', 'util_num']].copy()
-        display_df.columns = ['Pozícia', 'Priemerný počet SKU', 'Celkom kusov', 'Priemerné využitie %']
-        st.dataframe(display_df, use_container_width=True)
-    else:
-        display_columns = ['Názov lokácie', 'Počet produktov', 'Množstvo produktov', '% Využité kapacity']
-        st.dataframe(sorted_df[display_columns], use_container_width=True)
+    display_columns = ['Názov lokácie', 'Počet produktov', 'Množstvo produktov', 'util_num']
+    st.dataframe(sorted_df[display_columns], use_container_width=True)
 
 else:
-    st.info("👋 Nahraj Excel pre vizualizáciu.")
+    st.info("👋 Prosím, nahraj Excel súbor pre vizualizáciu všetkých zón.")
