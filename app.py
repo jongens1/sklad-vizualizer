@@ -43,7 +43,7 @@ df_raw = None
 if uploaded_file:
     df_raw = load_and_parse_data(uploaded_file)
 elif os.path.exists("data.xlsx"):
-    df_raw = load_and_parse_data("data.xlsx")
+    df_raw = load_and_parse_data("datafull.xlsx")
 
 if df_raw is not None:
     st.sidebar.header("📍 1. Základný výber")
