@@ -52,35 +52,35 @@ if df_raw is not None:
     selected_zone = st.sidebar.selectbox("Vyber Zónu:", available_zones)
     zone_df = df_raw[df_raw['tmp_zone'] == selected_zone].copy()
 
-    # --- NOVÝ USER FRIENDLY CHOOSER SEKCIÍ ---
+    # --- OPRAVENÁ LOGIKA SEKCIÍ ---
     st.sidebar.header("🏢 2. Filtrovať Sekcie")
     available_sections = sorted(zone_df['Sekcia'].unique())
-    
-    # Pomocné tlačidlá na hromadný výber
+
+    # Funkcie pre tlačidlá
+    def set_all(val):
+        for s in available_sections:
+            st.session_state[f"cb_{s}"] = val
+
     col_a, col_b = st.sidebar.columns(2)
-    select_all = col_a.button("Všetky")
-    select_none = col_b.button("Žiadna")
+    col_a.button("Všetky", on_click=set_all, args=(True,))
+    col_b.button("Žiadna", on_click=set_all, args=(False,))
 
-    if "selected_sects" not in st.session_state or select_all:
-        st.session_state.selected_sects = list(available_sections)
-    if select_none:
-        st.session_state.selected_sects = []
-
-    # Zoznam checkboxov v expanderi
+    selected_sects = []
     with st.sidebar.expander("Zoznam sekcií v zóne", expanded=True):
-        new_selection = []
         for sect in available_sections:
-            is_checked = sect in st.session_state.selected_sects
-            if st.checkbox(sect, value=is_checked, key=f"cb_{sect}"):
-                new_selection.append(sect)
-        st.session_state.selected_sects = new_selection
+            # Ak kľúč ešte neexistuje (napr. pri zmene zóny), nastavíme na True
+            if f"cb_{sect}" not in st.session_state:
+                st.session_state[f"cb_{sect}"] = True
+            
+            if st.checkbox(sect, key=f"cb_{sect}"):
+                selected_sects.append(sect)
 
     st.sidebar.markdown("---")
-    view_type = st.sidebar.radio("Typ zobrazenia:", ["Pôdorys", "Profil uličky"])
+    view_type = st.sidebar.radio("Typ zobrazenia:", ["Pohľad na celú plochu (Pôdorys)", "Detail jednej uličky (Profil)"])
     viz_mode = st.sidebar.radio("Farba podľa:", ["Využitie kapacity (%)", "Počet produktov"])
 
-    # Logika filtrovania pre graf (zachovávame kontext zóny)
-    if view_type == "Pôdorys":
+    # Logika filtrovania pre graf
+    if view_type == "Pohľad na celú plochu (Pôdorys)":
         levels = sorted(zone_df['ur_num'].unique().astype(int))
         level_options = ["Všetky úrovne (Priemer)"] + [str(l) for l in levels]
         selected_level = st.sidebar.selectbox("Vyber poschodie:", level_options)
@@ -102,30 +102,30 @@ if df_raw is not None:
         plot_df['display_name'] = plot_df['Názov lokácie']
         x_col, y_col = 'poz_num', 'ur_num'
 
-    # ROZDELENIE NA AKTÍVNE A NEAKTÍVNE (Zvýraznenie)
-    active_mask = plot_df['Sekcia'].isin(st.session_state.selected_sects)
+    # Rozdelenie na Aktívne a Neaktívne
+    active_mask = plot_df['Sekcia'].isin(selected_sects)
     active_df = plot_df[active_mask].copy()
     inactive_df = plot_df[~active_mask].copy()
 
     # Scaling
     max_dim = max(plot_df[x_col].max() - plot_df[x_col].min(), plot_df[y_col].max() - plot_df[y_col].min()) if not plot_df.empty else 0
-    auto_size = 45 if max_dim < 15 else (28 if max_dim < 40 else (18 if max_dim < 80 else 12))
+    auto_size = 45 if max_dim < 15 else (28 if max_dim < 40 else (18 if max_dim < 80 else 14))
 
     # VYKRESLENIE
     fig = go.Figure()
 
-    # 1. Trasa pre NEAKTÍVNE (Sivé)
+    # 1. NEAKTÍVNE (Sivé)
     fig.add_trace(go.Scatter(
         x=inactive_df[x_col], y=inactive_df[y_col],
         mode='markers',
-        marker=dict(size=auto_size, symbol='square', color='#E0E0E0', line=dict(width=0.5, color='#BDBDBD')),
+        marker=dict(size=auto_size, symbol='square', color='#F0F0F0', line=dict(width=0.4, color='#CCCCCC')),
         text=inactive_df['display_name'],
-        name="Ostatné (vypnuté)",
-        hovertemplate="<b>%{text}</b><br>Sekcia: %{customdata}<br><i>(Neaktívna)</i><extra></extra>",
+        name="Neaktívne",
+        hovertemplate="<b>%{text}</b><br>Sekcia: %{customdata}<br><i>(Vypnutá sekcia)</i><extra></extra>",
         customdata=inactive_df['Sekcia']
     ))
 
-    # 2. Trasa pre AKTÍVNE (Heatmapa)
+    # 2. AKTÍVNE (Heatmapa)
     if not active_df.empty:
         if viz_mode == "Využitie kapacity (%)":
             c_col, c_scale, c_min, c_max = 'util_num', 'RdYlGn_r', 0, 100
@@ -138,10 +138,10 @@ if df_raw is not None:
             marker=dict(
                 size=auto_size, symbol='square', color=active_df[c_col],
                 colorscale=c_scale, cmin=c_min, cmax=c_max,
-                showscale=True, line=dict(width=0.6, color='black')
+                showscale=True, line=dict(width=0.5, color='black')
             ),
             text=active_df['display_name'],
-            name="Vybrané sekcie",
+            name="Aktívne",
             customdata=active_df[['ul_num', 'poz_num', 'util_num', 'Počet produktov', 'Sekcia']],
             hovertemplate=(
                 "<b>%{text}</b><br>Sekcia: %{customdata[4]}<br>" +
@@ -149,16 +149,16 @@ if df_raw is not None:
             )
         ))
 
-    # Layout a Auto-Zoom (vždy na celú zónu)
+    # Layout
     fig.update_layout(
-        title=f"Mapa: Zóna {selected_zone} (Zvýraznené sekcie)",
-        xaxis=dict(title="Ulička", tickmode='linear', dtick=5, gridcolor='#f0f0f0', range=[plot_df[x_col].min()-1, plot_df[x_col].max()+1]),
-        yaxis=dict(title="Pozícia", tickmode='linear', dtick=5, gridcolor='#f0f0f0', range=[plot_df[y_col].min()-1, plot_df[y_col].max()+1]),
-        height=750, plot_bgcolor='white', showlegend=False
+        xaxis=dict(title="Ulička", tickmode='linear', dtick=5, gridcolor='#f8f8f8', range=[plot_df[x_col].min()-1, plot_df[x_col].max()+1]),
+        yaxis=dict(title="Pozícia", tickmode='linear', dtick=5, gridcolor='#f8f8f8', range=[plot_df[y_col].min()-1, plot_df[y_col].max()+1]),
+        height=780, plot_bgcolor='white', showlegend=False,
+        margin=dict(l=10, r=10, t=30, b=10)
     )
 
     st.plotly_chart(fig, use_container_width=True)
-    st.write("### Detailný prehľad aktívnych lokácií")
+    st.write("### Detail aktívnych sekcií")
     st.dataframe(active_df.sort_values(['ul_num', 'poz_num']), use_container_width=True)
 
 else:
