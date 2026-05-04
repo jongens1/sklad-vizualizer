@@ -34,7 +34,6 @@ def load_and_parse_data(file_source):
         if isinstance(val, str): val = val.replace('%', '').replace(',', '.')
         try: return float(val)
         except: return 0.0
-
     df['util_num'] = df['% Využité kapacity'].apply(clean_percent)
     return df
 
@@ -48,8 +47,22 @@ elif os.path.exists("data.xlsx"):
 
 if df_raw is not None:
     st.sidebar.header("📍 1. Základný výber")
+    
+    # --- LOGIKA PRE NASTAVENIE PREDVOLENEJ ZÓNY 2A ---
     available_zones = sorted(df_raw['tmp_zone'].unique())
-    selected_zone = st.sidebar.selectbox("Vyber Zónu:", available_zones)
+    
+    # Zistíme, či je 2A v zozname, ak áno, nastavíme jej index ako predvolený
+    default_zone_index = 0
+    if "2A" in available_zones:
+        default_zone_index = available_zones.index("2A")
+    
+    selected_zone = st.sidebar.selectbox(
+        "Vyber Zónu:", 
+        available_zones, 
+        index=default_zone_index
+    )
+    # ------------------------------------------------
+
     zone_df = df_raw[df_raw['tmp_zone'] == selected_zone].copy()
 
     # --- OPRAVENÁ LOGIKA SEKCIÍ ---
@@ -68,10 +81,8 @@ if df_raw is not None:
     selected_sects = []
     with st.sidebar.expander("Zoznam sekcií v zóne", expanded=True):
         for sect in available_sections:
-            # Ak kľúč ešte neexistuje (napr. pri zmene zóny), nastavíme na True
             if f"cb_{sect}" not in st.session_state:
                 st.session_state[f"cb_{sect}"] = True
-            
             if st.checkbox(sect, key=f"cb_{sect}"):
                 selected_sects.append(sect)
 
@@ -84,7 +95,6 @@ if df_raw is not None:
         levels = sorted(zone_df['ur_num'].unique().astype(int))
         level_options = ["Všetky úrovne (Priemer)"] + [str(l) for l in levels]
         selected_level = st.sidebar.selectbox("Vyber poschodie:", level_options)
-        
         if selected_level == "Všetky úrovne (Priemer)":
             plot_df = zone_df.groupby(['ul_num', 'poz_num', 'Sekcia']).agg({
                 'util_num': 'mean', 'Počet produktov': 'mean', 'Množstvo produktov': 'sum'
@@ -93,7 +103,6 @@ if df_raw is not None:
         else:
             plot_df = zone_df[zone_df['ur_num'] == int(selected_level)].copy()
             plot_df['display_name'] = plot_df['Názov lokácie']
-        
         x_col, y_col = 'ul_num', 'poz_num'
     else:
         available_aisles = sorted(zone_df['ul_num'].unique().astype(int))
@@ -131,7 +140,6 @@ if df_raw is not None:
             c_col, c_scale, c_min, c_max = 'util_num', 'RdYlGn_r', 0, 100
         else:
             c_col, c_scale, c_min, c_max = 'Počet produktov', 'Viridis_r', 0, active_df['Počet produktov'].max()
-        
         fig.add_trace(go.Scatter(
             x=active_df[x_col], y=active_df[y_col],
             mode='markers',
@@ -160,6 +168,5 @@ if df_raw is not None:
     st.plotly_chart(fig, use_container_width=True)
     st.write("### Detail aktívnych sekcií")
     st.dataframe(active_df.sort_values(['ul_num', 'poz_num']), use_container_width=True)
-
 else:
     st.info("👋 Prosím, nahraj Excel alebo pridaj 'data.xlsx' na GitHub.")
