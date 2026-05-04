@@ -6,16 +6,13 @@ import os
 # Nastavenie stránky
 st.set_page_config(layout="wide", page_title="Warehouse Map Pro")
 
-st.title("📊 Warehouse Visualizer (Auto-Scaling)")
+st.title("📊 Warehouse Visualizer (Enhanced Scaling)")
 
 # --- FUNKCIA NA NAČÍTANIE DÁT S CACHINGOM ---
 @st.cache_data
 def load_and_parse_data(file_source):
-    """Načíta Excel a pripraví dáta. Vďaka cache sa toto deje len raz."""
-    if isinstance(file_source, str):
-        df = pd.read_excel(file_source)
-    else:
-        df = pd.read_excel(file_source)
+    """Načíta Excel a pripraví dáta."""
+    df = pd.read_excel(file_source)
     
     def parse_location(loc_name):
         try:
@@ -63,11 +60,16 @@ if df_raw is not None:
         selected_level = st.sidebar.selectbox("Vyber poschodie:", level_options)
         
         if selected_level == "Všetky úrovne (Priemer)":
-            plot_df = zone_df.groupby(['ul_num', 'poz_num']).agg({'util_num': 'mean', 'Počet produktov': 'mean', 'Množstvo produktov': 'sum'}).reset_index()
-            plot_df['Názov lokácie'] = "Zóna " + selected_zone
-            plot_df['ur_num'] = 0 
+            plot_df = zone_df.groupby(['ul_num', 'poz_num']).agg({
+                'util_num': 'mean', 
+                'Počet produktov': 'mean', 
+                'Množstvo produktov': 'sum'
+            }).reset_index()
+            # V režime priemeru vytvoríme popisný názov
+            plot_df['display_name'] = plot_df.apply(lambda r: f"{selected_zone}-{int(r['ul_num']):02d}-{int(r['poz_num']):02d}", axis=1)
         else:
             plot_df = zone_df[zone_df['ur_num'] == int(selected_level)].copy()
+            plot_df['display_name'] = plot_df['Názov lokácie']
         
         x_col, y_col = 'ul_num', 'poz_num'
         x_label, y_label = "Ulička", "Pozícia"
@@ -75,29 +77,23 @@ if df_raw is not None:
         available_aisles = sorted(zone_df['ul_num'].unique().astype(int))
         selected_aisle = st.sidebar.selectbox("Vyber uličku:", available_aisles)
         plot_df = zone_df[zone_df['ul_num'] == selected_aisle].copy()
+        plot_df['display_name'] = plot_df['Názov lokácie']
         x_col, y_col = 'poz_num', 'ur_num'
         x_label, y_label = "Pozícia", "Úroveň"
 
-    # --- AUTOMATICKÝ SCALING VEĽKOSTI BODU ---
-    # Výpočet "hustoty" mriežky
-    if not plot_df.empty:
-        range_x = plot_df[x_col].max() - plot_df[x_col].min()
-        range_y = plot_df[y_col].max() - plot_df[y_col].min()
-        
-        # Heuristika: čím menej bodov na osiach, tým väčší bod
-        # Pre uličku s pár bodmi vyjde size okolo 25-30, pre veľké zóny okolo 10-12
-        max_dim = max(range_x, range_y)
-        if max_dim < 10: auto_size = 35
-        elif max_dim < 25: auto_size = 22
-        elif max_dim < 50: auto_size = 14
-        else: auto_size = 10
-    else:
-        auto_size = 15
+    # --- AUTOMATICKÝ SCALING VEĽKOSTI BODU (Zväčšený) ---
+    range_x = plot_df[x_col].max() - plot_df[x_col].min() if not plot_df.empty else 0
+    range_y = plot_df[y_col].max() - plot_df[y_col].min() if not plot_df.empty else 0
+    max_dim = max(range_x, range_y)
+
+    if max_dim < 10: auto_size = 48
+    elif max_dim < 25: auto_size = 32
+    elif max_dim < 50: auto_size = 20
+    else: auto_size = 14 # Pre zónu 2A (cca 75 uličiek) zvýšené z 10 na 14
 
     # 3. VYKRESLENIE
     fig = go.Figure()
     
-    # Farby
     if viz_mode == "Využitie kapacity (%)":
         c_col, c_scale, c_min, c_max = 'util_num', 'RdYlGn_r', 0, 100
     else:
@@ -113,27 +109,38 @@ if df_raw is not None:
             colorscale=c_scale,
             cmin=c_min, cmax=c_max,
             showscale=True,
-            line=dict(width=0.5, color='DarkSlateGrey')
+            line=dict(width=0.4, color='black')
         ),
-        text=plot_df['Názov lokácie'],
-        hovertemplate="<b>%{text}</b><br>Hodnota: %{marker.color:.1f}<extra></extra>"
+        text=plot_df['display_name'],
+        # VYLEPŠENÝ HOVER
+        customdata=plot_df[['ul_num', 'poz_num', 'util_num', 'Počet produktov', 'Množstvo produktov']],
+        hovertemplate=(
+            "<b>Lokácia: %{text}</b><br>" +
+            "Ulička: %{customdata[0]}<br>" +
+            "Pozícia: %{customdata[1]}<br><br>" +
+            "Využitie: %{customdata[2]:.1f}%<br>" +
+            "SKU: %{customdata[3]:.1f}<br>" +
+            "Kusy: %{customdata[4]}<extra></extra>"
+        )
     ))
 
-    # Auto-Zoom osí
+    # Auto-Zoom
     if not plot_df.empty:
         fig.update_xaxes(range=[plot_df[x_col].min() - 1, plot_df[x_col].max() + 1])
         fig.update_yaxes(range=[plot_df[y_col].min() - 1, plot_df[y_col].max() + 1])
 
     fig.update_layout(
-        title=f"Zóna {selected_zone}",
-        xaxis=dict(title=x_label, tickmode='linear', dtick=1 if range_x < 40 else 5),
-        yaxis=dict(title=y_label, tickmode='linear', dtick=1),
-        height=700,
-        margin=dict(l=20, r=20, t=40, b=20),
+        title=f"Mapa: Zóna {selected_zone}",
+        xaxis=dict(title=x_label, tickmode='linear', dtick=1 if range_x < 40 else 5, gridcolor='#f0f0f0'),
+        yaxis=dict(title=y_label, tickmode='linear', dtick=1, gridcolor='#f0f0f0'),
+        height=750,
         plot_bgcolor='white'
     )
 
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailná tabuľka s peknými názvami
+    st.write("### Detailný prehľad")
     st.dataframe(plot_df.sort_values([x_col, y_col]), use_container_width=True)
 
 else:
