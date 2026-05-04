@@ -3,9 +3,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import os
 
-st.set_page_config(layout="wide", page_title="Warehouse Loop Visualizer")
+st.set_page_config(layout="wide", page_title="Warehouse Map Pro")
 
-st.title("🔄 Warehouse Visualizer: Celý Loop")
+st.title("📊 Warehouse Visualizer (Section Highlighter)")
 
 @st.cache_data
 def load_and_parse_data(file_source):
@@ -47,118 +47,119 @@ elif os.path.exists("data.xlsx"):
     df_raw = load_and_parse_data("data.xlsx")
 
 if df_raw is not None:
-    # --- LOGIKA GLOBÁLNYCH SÚRADNÍC PRE LOOP ---
-    def get_global_coords(row):
-        z = row['tmp_zone']
-        u = row['ul_num']
-        p = row['poz_num']
-        
-        # Stredové vertikálne zóny (A, B, C, D)
-        if z == '2A': return 20 + u, p
-        if z == '2B': return 40 + u, p
-        if z == '2C': return 60 + u, p
-        if z == '2D': return 80 + u, p
-        
-        # Bočné horizontálne zóny (E vľavo, F vpravo)
-        if z == '2E': return p * 0.3, u + 10 # E je pred uličkami
-        if z == '2F': return 100 + (p * 0.3), u + 10 # F je za uličkami
-        
-        # Pre ostatné (1A, 3A atď.) použijeme základný grid
-        return u, p
+    st.sidebar.header("📍 1. Základný výber")
+    available_zones = sorted(df_raw['tmp_zone'].unique())
+    selected_zone = st.sidebar.selectbox("Vyber Zónu:", available_zones)
+    zone_df = df_raw[df_raw['tmp_zone'] == selected_zone].copy()
 
-    st.sidebar.header("📍 1. Výber oblasti")
-    main_options = ["CELÝ LOOP (Zóny 2A-2F)"] + sorted(df_raw['tmp_zone'].unique())
-    selected_main = st.sidebar.selectbox("Vyber zobrazenie:", main_options)
-
-    if selected_main == "CELÝ LOOP (Zóny 2A-2F)":
-        zone_df = df_raw[df_raw['tmp_zone'].isin(['2A','2B','2C','2D','2E','2F'])].copy()
-        is_loop = True
-    else:
-        zone_df = df_raw[df_raw['tmp_zone'] == selected_main].copy()
-        is_loop = False
-
-    # --- FILTROVANIE SEKCIÍ ---
+    # --- OPRAVENÁ LOGIKA SEKCIÍ ---
     st.sidebar.header("🏢 2. Filtrovať Sekcie")
     available_sections = sorted(zone_df['Sekcia'].unique())
 
+    # Funkcie pre tlačidlá
     def set_all(val):
-        for s in available_sections: st.session_state[f"cb_{s}"] = val
+        for s in available_sections:
+            st.session_state[f"cb_{s}"] = val
 
     col_a, col_b = st.sidebar.columns(2)
     col_a.button("Všetky", on_click=set_all, args=(True,))
     col_b.button("Žiadna", on_click=set_all, args=(False,))
 
     selected_sects = []
-    with st.sidebar.expander("Zoznam sekcií", expanded=not is_loop):
+    with st.sidebar.expander("Zoznam sekcií v zóne", expanded=True):
         for sect in available_sections:
-            if f"cb_{sect}" not in st.session_state: st.session_state[f"cb_{sect}"] = True
-            if st.checkbox(sect, key=f"cb_{sect}"): selected_sects.append(sect)
+            # Ak kľúč ešte neexistuje (napr. pri zmene zóny), nastavíme na True
+            if f"cb_{sect}" not in st.session_state:
+                st.session_state[f"cb_{sect}"] = True
+            
+            if st.checkbox(sect, key=f"cb_{sect}"):
+                selected_sects.append(sect)
 
     st.sidebar.markdown("---")
+    view_type = st.sidebar.radio("Typ zobrazenia:", ["Pohľad na celú plochu (Pôdorys)", "Detail jednej uličky (Profil)"])
     viz_mode = st.sidebar.radio("Farba podľa:", ["Využitie kapacity (%)", "Počet produktov"])
-    
-    # Pre Loop automaticky zapneme priemer všetkých úrovní, aby to bolo prehľadné
-    if is_loop:
-        selected_level = "Všetky úrovne (Priemer)"
-        plot_df = zone_df.groupby(['ul_num', 'poz_num', 'tmp_zone', 'Sekcia']).agg({
-            'util_num': 'mean', 'Počet produktov': 'mean', 'Množstvo produktov': 'sum'
-        }).reset_index()
-        plot_df['display_name'] = plot_df.apply(lambda r: f"{r['tmp_zone']}-{int(r['ul_num']):02d}-{int(r['poz_num']):02d}", axis=1)
-    else:
+
+    # Logika filtrovania pre graf
+    if view_type == "Pohľad na celú plochu (Pôdorys)":
         levels = sorted(zone_df['ur_num'].unique().astype(int))
-        selected_level = st.sidebar.selectbox("Vyber poschodie:", ["Všetky úrovne (Priemer)"] + [str(l) for l in levels])
+        level_options = ["Všetky úrovne (Priemer)"] + [str(l) for l in levels]
+        selected_level = st.sidebar.selectbox("Vyber poschodie:", level_options)
+        
         if selected_level == "Všetky úrovne (Priemer)":
-            plot_df = zone_df.groupby(['ul_num', 'poz_num', 'Sekcia']).agg({'util_num': 'mean', 'Počet produktov': 'mean', 'Množstvo produktov': 'sum'}).reset_index()
-            plot_df['display_name'] = plot_df.apply(lambda r: f"{selected_main}-{int(r['ul_num']):02d}-{int(r['poz_num']):02d}", axis=1)
+            plot_df = zone_df.groupby(['ul_num', 'poz_num', 'Sekcia']).agg({
+                'util_num': 'mean', 'Počet produktov': 'mean', 'Množstvo produktov': 'sum'
+            }).reset_index()
+            plot_df['display_name'] = plot_df.apply(lambda r: f"{selected_zone}-{int(r['ul_num']):02d}-{int(r['poz_num']):02d}", axis=1)
         else:
             plot_df = zone_df[zone_df['ur_num'] == int(selected_level)].copy()
             plot_df['display_name'] = plot_df['Názov lokácie']
+        
+        x_col, y_col = 'ul_num', 'poz_num'
+    else:
+        available_aisles = sorted(zone_df['ul_num'].unique().astype(int))
+        selected_aisle = st.sidebar.selectbox("Vyber uličku:", available_aisles)
+        plot_df = zone_df[zone_df['ul_num'] == selected_aisle].copy()
+        plot_df['display_name'] = plot_df['Názov lokácie']
+        x_col, y_col = 'poz_num', 'ur_num'
 
-    # Priradenie globálnych súradníc
-    coords = plot_df.apply(lambda r: pd.Series(get_global_coords(r)), axis=1)
-    plot_df['x_glob'], plot_df['y_glob'] = coords[0], coords[1]
-
-    # Rozdelenie na Aktívne/Neaktívne
+    # Rozdelenie na Aktívne a Neaktívne
     active_mask = plot_df['Sekcia'].isin(selected_sects)
     active_df = plot_df[active_mask].copy()
     inactive_df = plot_df[~active_mask].copy()
 
-    # Vykreslenie
+    # Scaling
+    max_dim = max(plot_df[x_col].max() - plot_df[x_col].min(), plot_df[y_col].max() - plot_df[y_col].min()) if not plot_df.empty else 0
+    auto_size = 45 if max_dim < 15 else (28 if max_dim < 40 else (18 if max_dim < 80 else 14))
+
+    # VYKRESLENIE
     fig = go.Figure()
 
     # 1. NEAKTÍVNE (Sivé)
     fig.add_trace(go.Scatter(
-        x=inactive_df['x_glob'], y=inactive_df['y_glob'],
+        x=inactive_df[x_col], y=inactive_df[y_col],
         mode='markers',
-        marker=dict(size=8 if is_loop else 14, symbol='square', color='#F0F0F0', line=dict(width=0.2, color='#CCCCCC')),
+        marker=dict(size=auto_size, symbol='square', color='#F0F0F0', line=dict(width=0.4, color='#CCCCCC')),
         text=inactive_df['display_name'],
-        hoverinfo='text'
+        name="Neaktívne",
+        hovertemplate="<b>%{text}</b><br>Sekcia: %{customdata}<br><i>(Vypnutá sekcia)</i><extra></extra>",
+        customdata=inactive_df['Sekcia']
     ))
 
-    # 2. AKTÍVNE
+    # 2. AKTÍVNE (Heatmapa)
     if not active_df.empty:
-        c_col, c_scale = ('util_num', 'RdYlGn_r') if viz_mode == "Využitie kapacity (%)" else ('Počet produktov', 'Viridis_r')
+        if viz_mode == "Využitie kapacity (%)":
+            c_col, c_scale, c_min, c_max = 'util_num', 'RdYlGn_r', 0, 100
+        else:
+            c_col, c_scale, c_min, c_max = 'Počet produktov', 'Viridis_r', 0, active_df['Počet produktov'].max()
+        
         fig.add_trace(go.Scatter(
-            x=active_df['x_glob'], y=active_df['y_glob'],
+            x=active_df[x_col], y=active_df[y_col],
             mode='markers',
             marker=dict(
-                size=10 if is_loop else 16, symbol='square', color=active_df[c_col],
-                colorscale=c_scale, cmin=0, cmax=100 if viz_mode == "Využitie kapacity (%)" else active_df[c_col].max(),
-                showscale=True, line=dict(width=0.4, color='black')
+                size=auto_size, symbol='square', color=active_df[c_col],
+                colorscale=c_scale, cmin=c_min, cmax=c_max,
+                showscale=True, line=dict(width=0.5, color='black')
             ),
             text=active_df['display_name'],
-            customdata=active_df[['util_num', 'Počet produktov', 'Sekcia']],
-            hovertemplate="<b>%{text}</b><br>Sekcia: %{customdata[2]}<br>Využitie: %{customdata[0]:.1f}%<extra></extra>"
+            name="Aktívne",
+            customdata=active_df[['ul_num', 'poz_num', 'util_num', 'Počet produktov', 'Sekcia']],
+            hovertemplate=(
+                "<b>%{text}</b><br>Sekcia: %{customdata[4]}<br>" +
+                "Využitie: %{customdata[2]:.1f}%<br>SKU: %{customdata[3]:.1f}<extra></extra>"
+            )
         ))
 
+    # Layout
     fig.update_layout(
-        title=f"Vizualizácia: {selected_main}",
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=800, plot_bgcolor='white'
+        xaxis=dict(title="Ulička", tickmode='linear', dtick=5, gridcolor='#f8f8f8', range=[plot_df[x_col].min()-1, plot_df[x_col].max()+1]),
+        yaxis=dict(title="Pozícia", tickmode='linear', dtick=5, gridcolor='#f8f8f8', range=[plot_df[y_col].min()-1, plot_df[y_col].max()+1]),
+        height=780, plot_bgcolor='white', showlegend=False,
+        margin=dict(l=10, r=10, t=30, b=10)
     )
 
     st.plotly_chart(fig, use_container_width=True)
+    st.write("### Detail aktívnych sekcií")
+    st.dataframe(active_df.sort_values(['ul_num', 'poz_num']), use_container_width=True)
 
 else:
-    st.info("👋 Nahraj Excel pre zobrazenie Loopu.")
+    st.info("👋 Prosím, nahraj Excel alebo pridaj 'data.xlsx' na GitHub.")
