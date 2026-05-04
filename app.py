@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import os
 
 # Nastavenie šírky stránky
-st.set_page_config(layout="wide", page_title="Warehouse Map - Multi Zone")
+st.set_page_config(layout="wide", page_title="Warehouse Map - Pro")
 
 st.title("📊 Warehouse Multi-Zone Visualizer")
 
@@ -14,13 +14,13 @@ uploaded_file = st.sidebar.file_uploader("Nahraj vlastný Excel súbor (.xlsx)",
 
 def parse_location(loc_name):
     """
-    Rozbije formát 2A-01-1-2 alebo 2SW-01-1-2 na komponenty.
-    Vezme prvú časť (napr. 2SW), odstráni prvú číslicu a zvyšok je Zóna.
+    Rozbije formát napr. 1A-01-1-2 alebo 2SW-01-1-2 na komponenty.
+    Zóna je teraz celá prvá časť pred prvou pomlčkou (napr. 1A, 2A, 2SW).
     """
     try:
         parts = str(loc_name).split('-')
-        prefix = parts[0]
-        zone = prefix[1:] # Zóna je od druhého znaku (A, B, SW...)
+        # Zóna je celá prvá časť (napr. 1A, 2A, 2SW)
+        zone = parts[0]
         
         ulicka = int(parts[1])
         pozicia = int(parts[2])
@@ -29,7 +29,7 @@ def parse_location(loc_name):
     except:
         return None, None, None, None
 
-# LOGIKA NAČÍTANIA DÁT (Option 1: Default file)
+# LOGIKA NAČÍTANIA DÁT
 df = None
 data_source = ""
 
@@ -54,9 +54,9 @@ if df is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("📍 Nastavenia zobrazenia")
     
-    # FILTER 1: ZÓNA
+    # FILTER 1: ZÓNA (teraz obsahuje aj číslo, napr. 1A, 2A)
     available_zones = sorted(df['tmp_zone'].unique())
-    selected_zone = st.sidebar.selectbox("Vyber Zónu:", available_zones)
+    selected_zone = st.sidebar.selectbox("Vyber Zónu (napr. 1A, 2A):", available_zones)
     zone_df = df[df['tmp_zone'] == selected_zone].copy()
 
     # FILTER 2: TYP ZOBRAZENIA
@@ -83,7 +83,7 @@ if df is not None:
                 'Počet produktov': 'mean',
                 'Množstvo produktov': 'sum'
             }).reset_index()
-            plot_df['Názov lokácie'] = plot_df.apply(lambda r: f"Zóna {selected_zone}, Ul. {int(r['ul_num'])}, Poz. {int(r['poz_num'])} (Celý stĺpec)", axis=1)
+            plot_df['Názov lokácie'] = plot_df.apply(lambda r: f"Zóna {selected_zone}, Ul. {int(r['ul_num'])}, Poz. {int(r['poz_num'])}", axis=1)
             plot_df['ur_num'] = 0 
         else:
             plot_df = zone_df[zone_df['ur_num'] == int(selected_level)].copy()
@@ -98,7 +98,7 @@ if df is not None:
         x_axis_col, y_axis_col = 'poz_num', 'ur_num'
         x_label, y_label = "Pozícia v uličke", "Poschodie (Úroveň)"
 
-    # Nastavenie farieb
+    # Nastavenie farebnej škály
     if viz_mode == "Využitie kapacity (%)":
         color_col, color_scale, c_min, c_max, bar_title = 'util_num', 'RdYlGn_r', 0, 100, "% Využitia"
     else:
@@ -114,7 +114,7 @@ if df is not None:
         y=plot_df[y_axis_col],
         mode='markers',
         marker=dict(
-            size=18 if view_type == "Detail jednej uličky (Profil)" else 12,
+            size=15 if view_type == "Detail jednej uličky (Profil)" else 12,
             symbol='square',
             color=plot_df[color_col],
             colorscale=color_scale,
@@ -149,12 +149,13 @@ if df is not None:
     m2.metric("Priemerné zaplnenie", f"{round(plot_df['util_num'].mean(), 1)}%" if len(plot_df) > 0 else "0%")
     m3.metric("Max. počet produktov", round(plot_df['Počet produktov'].max(), 1) if len(plot_df) > 0 else 0)
 
-    # 6. TABUĽKA (Opravený KeyError)
+    # 6. TABUĽKA
     st.write("### Detailný zoznam lokácií")
     sorted_df = plot_df.sort_values(['ul_num', 'poz_num'])
+    
     if 'selected_level' in locals() and selected_level == "Všetky úrovne (Priemer)":
         display_df = sorted_df[['Názov lokácie', 'Počet produktov', 'Množstvo produktov', 'util_num']].copy()
-        display_df.columns = ['Pozícia (Celý stĺpec)', 'Priemerný počet SKU', 'Celkom kusov', 'Priemerné využitie %']
+        display_df.columns = ['Pozícia', 'Priemerný počet SKU', 'Celkom kusov', 'Priemerné využitie %']
         st.dataframe(display_df, use_container_width=True)
     else:
         display_cols = ['Názov lokácie', 'Počet produktov', 'Množstvo produktov', '% Využité kapacity']
