@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.graph_objects as go[4][5]
 
 # Nastavenie šírky stránky
 st.set_page_config(layout="wide", page_title="Sklad - Zóna A")
@@ -53,17 +53,18 @@ if uploaded_file:
     # Nastavenie parametrov podľa režimu
     if viz_mode == "Využitie kapacity (%)":
         color_col = 'util_num'
-        color_scale = 'RdYlGn_r' # Červená (plné) -> Zelená (voľné)
+        color_scale = 'RdYlGn_r' # Zelená (prázdne) -> Červená (plné)
         c_min, c_max = 0, 100
         bar_title = "% Využitia"
     else:
         color_col = 'Počet produktov'
-        color_scale = 'Viridis' # Fialová -> Žltá
+        # OBRÁTENÁ FARBA: Viridis_r spôsobí, že fialová je MAX a žltá je MIN
+        color_scale = 'Viridis_r' 
         c_min, c_max = 0, plot_df['Počet produktov'].max()
-        bar_title = "Počet produktov"
+        bar_title = "Počet SKU"
 
     # 4. Vykreslenie mapy
-    fig = go.Figure()
+    fig = go.Figure()[4][5]
 
     fig.add_trace(go.Scatter(
         x=plot_df['ul_num'],
@@ -90,7 +91,7 @@ if uploaded_file:
     ))
 
     fig.update_layout(
-        title=f"Mapa Zóny A (Úroveň {selected_level}) - Merané cez: {viz_mode}",
+        title=f"Mapa Zóny A (Poschodie {selected_level}) - Režim: {viz_mode}",
         xaxis=dict(title="Ulička (Rady)", tickmode='linear', dtick=5, gridcolor='#eee'),
         yaxis=dict(title="Pozícia v uličke", tickmode='linear', dtick=5, gridcolor='#eee'),
         width=1100,
@@ -100,7 +101,7 @@ if uploaded_file:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # 5. Štatistiky
+    # 5. Štatistiky pod mapou
     col1, col2, col3 = st.columns(3)
     col1.metric("Počet lokácií", len(plot_df))
     col2.metric("Priemerné zaplnenie", f"{round(plot_df['util_num'].mean(), 1)}%")
