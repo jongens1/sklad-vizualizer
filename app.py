@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go[4][5]
+import plotly.graph_objects as go
 
 # Nastavenie šírky stránky
 st.set_page_config(layout="wide", page_title="Sklad - Zóna A")
@@ -32,7 +32,7 @@ if uploaded_file:
     # Odstránenie neplatných riadkov
     df = df.dropna(subset=['ul_num', 'poz_num', 'ur_num'])
 
-    # Prevod percent na číslo (ošetrenie čiarky a znaku %)
+    # Prevod percent na číslo
     df['util_num'] = df['% Využité kapacity'].astype(str).str.replace('%', '').str.replace(',', '.').astype(float)
 
     # 2. Sidebar - Ovládacie prvky
@@ -53,18 +53,18 @@ if uploaded_file:
     # Nastavenie parametrov podľa režimu
     if viz_mode == "Využitie kapacity (%)":
         color_col = 'util_num'
-        color_scale = 'RdYlGn_r' # Zelená (prázdne) -> Červená (plné)
+        color_scale = 'RdYlGn_r' 
         c_min, c_max = 0, 100
         bar_title = "% Využitia"
     else:
         color_col = 'Počet produktov'
-        # OBRÁTENÁ FARBA: Viridis_r spôsobí, že fialová je MAX a žltá je MIN
+        # Viridis_r: Fialová = MAX, Žltá = MIN
         color_scale = 'Viridis_r' 
         c_min, c_max = 0, plot_df['Počet produktov'].max()
         bar_title = "Počet SKU"
 
     # 4. Vykreslenie mapy
-    fig = go.Figure()[4][5]
+    fig = go.Figure()
 
     fig.add_trace(go.Scatter(
         x=plot_df['ul_num'],
@@ -91,8 +91,8 @@ if uploaded_file:
     ))
 
     fig.update_layout(
-        title=f"Mapa Zóny A (Poschodie {selected_level}) - Režim: {viz_mode}",
-        xaxis=dict(title="Ulička (Rady)", tickmode='linear', dtick=5, gridcolor='#eee'),
+        title=f"Mapa Zóny A (Úroveň {selected_level}) - Režim: {viz_mode}",
+        xaxis=dict(title="Ulička", tickmode='linear', dtick=5, gridcolor='#eee'),
         yaxis=dict(title="Pozícia v uličke", tickmode='linear', dtick=5, gridcolor='#eee'),
         width=1100,
         height=750,
@@ -107,9 +107,9 @@ if uploaded_file:
     col2.metric("Priemerné zaplnenie", f"{round(plot_df['util_num'].mean(), 1)}%")
     col3.metric("Max. mix produktov", int(plot_df['Počet produktov'].max()))
 
-    # 6. Tabuľka s dátami
+    # 6. Tabuľka
     st.write("### Detailný zoznam lokácií")
     st.dataframe(plot_df[['Názov lokácie', 'Počet produktov', 'Množstvo produktov', '% Využité kapacity']], use_container_width=True)
 
 else:
-    st.info("👋 Prosím, nahraj Excel súbor s dátami pre Zónu A.")
+    st.info("👋 Prosím, nahraj Excel súbor pre vizualizáciu.")
