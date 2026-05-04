@@ -1,106 +1,109 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import re
 
-st.set_page_config(layout="wide", page_title="Warehouse Map")
+st.set_page_config(layout="wide", page_title="Alza Warehouse Map")
 
-st.title("📦 Vizualizácia skladu (Loop Layout)")
+st.title("📊 Warehouse Visualizer Pro")
 
-# 1. Upload súboru
 uploaded_file = st.sidebar.file_uploader("Nahraj Excel súbor (.xlsx)", type=["xlsx"])
 
 def parse_location(loc_name):
-    """
-    Rozoberie názov lokácie (napr. 2A-05-26-6) na časti.
-    Predpokladáme: [2][Zóna]-[Ulička]-[Pozícia]-[Úroveň]
-    """
     try:
-        # Extrahujeme písmeno zóny (druhý znak, napr. z '2A' vezme 'A')
-        parts = loc_name.split('-')
-        zona = parts[0][1] # 'A'
-        ulicka = int(parts[1]) # 5
-        pozicia = int(parts[2]) # 26
-        uroven = int(parts[3]) # 6
+        parts = str(loc_name).split('-')
+        zona = parts[0][1] # Písmeno A, B, C...
+        ulicka = int(parts[1])
+        pozicia = int(parts[2])
+        uroven = int(parts[3])
         return zona, ulicka, pozicia, uroven
     except:
         return None, None, None, None
 
 def get_coordinates(row):
-    """
-    Určí X a Y súradnice pre mapu na základe zóny a uličky.
-    """
-    zona, ulicka, pozicia, uroven = parse_location(str(row['Názov lokácie']))
+    zona, ulicka, pozicia, uroven = parse_location(row['Názov lokácie'])
+    if not zona: return 0, 0
     
-    if not zona:
-        return 0, 0
-
-    # Nastavenie X súradnice podľa tvojho nákresu (E vľavo, ABCD v strede, F vpravo)
-    # Čím vyššie číslo X, tým viac vpravo na mape
-    x_offset = {'E': 1, 'A': 5, 'B': 10, 'C': 15, 'D': 20, 'F': 25}
-    base_x = x_offset.get(zona, 0)
+    # Škálovanie X súradnice pre lepšiu viditeľnosť uličiek
+    # Každá zóna dostane väčší priestor (offset * 10)
+    x_map = {'E': 0, 'A': 10, 'B': 25, 'C': 40, 'D': 55, 'F': 75}
     
-    # K základnej pozícii zóny pripočítame uličku, aby regály neboli na sebe
-    x = base_x + (ulicka * 0.2)
-    # Y bude pozícia v uličke (ako hlboko do skladu to je)
-    y = pozicia
-    
+    # Vertikálne zóny A,B,C,D
+    if zona in ['A', 'B', 'C', 'D']:
+        x = x_map[zona] + (ulicka * 1.5) # Rozostup medzi uličkami
+        y = pozicia
+    # Horizontálne zóny na krajoch
+    elif zona == 'E':
+        x = pozicia * 0.5
+        y = ulicka + 50 # Posunieme ich vyššie/nižšie aby nezavadzali
+    elif zona == 'F':
+        x = x_map['F'] + (pozicia * 0.5)
+        y = ulicka + 50
+    else:
+        x, y = 0, 0
     return x, y
 
 if uploaded_file:
-    # Načítanie Excelu
     df = pd.read_excel(uploaded_file)
     
-    # Očista dát - premeníme percentá (napr. "2,21%") na čísla
-    if '% Využité kapacity' in df.columns:
-        df['util_num'] = df['% Využité kapacity'].astype(str).str.replace('%', '').str.replace(',', '.').astype(float)
-    else:
-        st.error("V Exceli chýba stĺpec '% Využité kapacity'!")
-        st.stop()
+    # Extrakcia zóny a úrovne pre filtre
+    df[['tmp_zona', 'tmp_ulicka', 'tmp_pozicia', 'tmp_uroven']] = df.apply(
+        lambda r: pd.Series(parse_location(r['Názov lokácie'])), axis=1
+    )
+    
+    # Prevod percent na číslo (ošetrenie 240.67...)
+    df['util_num'] = df['% Využité kapacity'].astype(str).str.replace('%', '').str.replace(',', '.').astype(float)
 
-    # Výpočet súradníc pre mapu
-    coords = df.apply(lambda r: pd.Series(get_coordinates(r)), axis=1)
-    df['x'], df['y'] = coords[0], coords[1]
+    # --- FILTRE V SIDEBARE ---
+    st.sidebar.header("Filtre")
+    selected_uroven = st.sidebar.multiselect(
+        "Vyber poschodie (úroveň):", 
+        options=sorted(df['tmp_uroven'].dropna().unique()),
+        default=[sorted(df['tmp_uroven'].dropna().unique())[0]] # Predvolene prvé poschodie
+    )
+    
+    max_util = st.sidebar.slider("Maximálne využitie pre farebnú škálu", 0, 200, 100)
 
-    # Vykreslenie mapy
+    # Filtrovanie dát
+    plot_df = df[df['tmp_uroven'].isin(selected_uroven)].copy()
+    
+    # Výpočet X, Y pre filtrované dáta
+    coords = plot_df.apply(lambda r: pd.Series(get_coordinates(r)), axis=1)
+    plot_df['x'], plot_df['y'] = coords[0], coords[1]
+
+    # --- VYKRESLENIE ---
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
-        x=df['x'], 
-        y=df['y'],
+        x=plot_df['x'], y=plot_df['y'],
         mode='markers',
         marker=dict(
-            size=10,
+            size=8,
             symbol='square',
-            color=df['util_num'],
-            colorscale='RdYlGn_r', # Červená (plné) -> Zelená (voľné)
+            color=plot_df['util_num'],
+            colorscale='RdYlGn_r',
+            cmin=0, cmax=max_util, # Orezanie škály pre lepšie farby
             showscale=True,
             colorbar=dict(title="% Využitia")
         ),
-        text=df['Názov lokácie'],
-        hovertemplate="<b>%{text}</b><br>Produkty: %{customdata[0]}<br>Kusy: %{customdata[1]}<br>Využitie: %{customdata[2]}%<extra></extra>",
-        customdata=df[['Počet produktov', 'Množstvo produktov', 'util_num']]
+        text=plot_df['Názov lokácie'],
+        hovertemplate="<b>%{text}</b><br>Využitie: %{marker.color}%<br>Produkty: %{customdata[0]}<extra></extra>",
+        customdata=plot_df[['Počet produktov']]
     ))
 
     fig.update_layout(
-        title="Mapa obsadenosti regálov",
+        title=f"Mapa skladu - Poschodie {selected_uroven}",
+        xaxis=dict(showgrid=False, zeroline=False),
+        yaxis=dict(showgrid=False, zeroline=False),
         plot_bgcolor='white',
-        xaxis=dict(title="Zóny (E -> A -> B -> C -> D -> F)", showgrid=False),
-        yaxis=dict(title="Hĺbka uličky (Pozícia)", showgrid=True),
         height=700
     )
 
     st.plotly_chart(fig, use_container_width=True)
     
-    # Tabuľka s filtrami
-    st.subheader("Prehľad dát")
-    zona_filter = st.multiselect("Filtruj podľa zóny", options=['A', 'B', 'C', 'D', 'E', 'F'], default=['A', 'B'])
-    
-    # Pomocný stĺpec pre filtrovanie
-    df['zona_tmp'] = df['Názov lokácie'].apply(lambda x: str(x)[1] if len(str(x)) > 1 else '')
-    filtered_df = df[df['zona_tmp'].isin(zona_filter)]
-    
-    st.dataframe(filtered_df[['Názov lokácie', 'Stanice', 'Počet produktov', 'Množstvo produktov', '% Využité kapacity']])
+    # Štatistiky
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Počet lokácií", len(plot_df))
+    col2.metric("Priemerné využitie", f"{round(plot_df['util_num'].mean(), 2)} %")
+    col3.metric("Lokácie nad 100%", len(plot_df[plot_df['util_num'] > 100]))
 
-else:
-    st.info("Nahraj svoj Excel súbor. Očakávam stĺpce: Názov lokácie, Stanice, Sekcia, Počet produktov, Množstvo produktov, % Využité kapacity")
+    st.dataframe(plot_df[['Názov lokácie', 'Stanice', '% Využité kapacity', 'Množstvo produktov']])
