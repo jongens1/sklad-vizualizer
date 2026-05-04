@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import os[1]
+import os
 
 # Nastavenie stránky
 st.set_page_config(layout="wide", page_title="Warehouse Map Pro")
@@ -101,18 +101,15 @@ if df_raw is not None:
         x_col, y_col = 'poz_num', 'ur_num'
         x_label, y_label = "Pozícia", "Úroveň"
 
-    # --- AUTOMATICKÝ SCALING VEĽKOSTI BODU (Zväčšený pre lepšiu čitateľnosť) ---
-    if not plot_df.empty:
-        range_x = plot_df[x_col].max() - plot_df[x_col].min()
-        range_y = plot_df[y_col].max() - plot_df[y_col].min()
-        max_dim = max(range_x, range_y)
+    # --- AUTOMATICKÝ SCALING VEĽKOSTI BODU ---
+    range_x = plot_df[x_col].max() - plot_df[x_col].min() if not plot_df.empty else 0
+    range_y = plot_df[y_col].max() - plot_df[y_col].min() if not plot_df.empty else 0
+    max_dim = max(range_x, range_y)
 
-        if max_dim < 15: auto_size = 45
-        elif max_dim < 40: auto_size = 28
-        elif max_dim < 80: auto_size = 18
-        else: auto_size = 12
-    else:
-        auto_size = 15
+    if max_dim < 15: auto_size = 45
+    elif max_dim < 40: auto_size = 28
+    elif max_dim < 80: auto_size = 18
+    else: auto_size = 13
 
     # 3. VYKRESLENIE
     fig = go.Figure()
@@ -160,6 +157,9 @@ if df_raw is not None:
     )
 
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailná tabuľka
+    st.write("### Detailný prehľad")
     st.dataframe(plot_df.sort_values([x_col, y_col]), use_container_width=True)
 
 else:
