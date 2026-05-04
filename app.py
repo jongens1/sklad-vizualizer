@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go[1][2][3][4]
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Sklad - Zóna A")
 
