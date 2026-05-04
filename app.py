@@ -5,7 +5,7 @@ import os
 
 st.set_page_config(layout="wide", page_title="Warehouse Map Pro")
 
-st.title("📊 Warehouse Visualizer (Section Highlighter)")
+st.title("📊 SKLC3 - Stav lokácií")
 
 @st.cache_data
 def load_and_parse_data(file_source):
