@@ -39,8 +39,8 @@ uploaded_file = st.sidebar.file_uploader("Nahraj vlastný Excel (.xlsx)", type=[
 df_raw = None
 if uploaded_file:
     df_raw = load_and_parse_data(uploaded_file)
-elif os.path.exists("data.xlsx"):
-    df_raw = load_and_parse_data("data.xlsx")
+elif os.path.exists("datafull.xlsx"):
+    df_raw = load_and_parse_data("datafull.xlsx")
 
 if df_raw is not None:
     # 1. SIDEBAR FILTRE
